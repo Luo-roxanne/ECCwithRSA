@@ -1,0 +1,55 @@
+import streamlit as st
+import hashlib
+import os
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad, unpad
+
+# ==========================================
+# 核心數學底層 (NIST P-192)
+# ==========================================
+P = 6277101735386680763835789423207666416102355444464034512897
+A, B = 1, 14
+G = (0x9780a221f584e62552f9f878f5a133240e53a39e832623b0, 
+     0x2401f7027b40939527ec56133299719364407f38072e9f06)
+
+def inv(n, q): return pow(n, q - 2, q)
+
+def ec_add(P1, P2):
+    if P1 is None: return P2
+    if P2 is None: return P1
+    x1, y1, x2, y2 = P1[0] % P, P1[1] % P, P2[0] % P, P2[1] % P
+    if x1 == x2:
+        if (y1 + y2) % P == 0: return None
+        m = (3 * x1 * x1 + A) * inv(2 * y1, P) % P
+    else:
+        m = (y2 - y1) * inv(x2 - x1, P) % P
+    x3 = (m * m - x1 - x2) % P
+    y3 = (m * (x1 - x3) - y1) % P
+    return (x3, y3)
+
+def ec_mul(k, P1):
+    res, temp = None, P1
+    while k > 0:
+        if k % 2 == 1: res = ec_add(res, temp)
+        temp = ec_add(temp, temp)
+        k //= 2
+    return res
+
+# ==========================================
+# Streamlit 導覽與分頁 (拆分為四個程式)
+# ==========================================
+st.sidebar.title("🛡️ ECC 系統導覽")
+app_mode = st.sidebar.selectbox("請選擇執行程式", 
+    ["1. Alice 生成公鑰", "2. Bob 生成公鑰", "3. Alice 加密訊息", "4. Bob 解密還原"])
+
+# ------------------------------------------
+# 程式 1：Alice 生成公鑰
+# ------------------------------------------
+if app_mode == "1. Alice 生成公鑰":
+    st.header("👤 程式一：Alice 公鑰生成器")
+    st.info("請廖聿逵操作此頁面")
+    da = st.number_input("【Alice】請輸入您的私鑰 (建議大數):", value=123456789)
+    if st.button("計算 Alice 公鑰"):
+        qa = ec_mul(da, G)
+        st.success("計算成功！請將下方公鑰傳送給 Bob")
+        st.code(f"QA_X: {hex(qa[0])}\nQA_Y: {hex(qa[1])}")

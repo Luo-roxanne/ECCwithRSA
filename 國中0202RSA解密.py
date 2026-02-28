@@ -3,111 +3,106 @@ import base64
 import math
 import pandas as pd
 
-def rsa_batch_decrypt(e, n, d, b64_input):
-    """
-    完全採用「國中0202RSA解密.py」的位元流邏輯
-    e: 雖然解密公式不用，但保留作為參數輸入
-    """
-    # 1. 核心參數計算 (k=明文區塊, c_bits_len=密文區塊)
-    k = math.floor(math.log2(n))
-    c_bits_len = math.ceil(math.log2(n))
+def days_to_date(n_day_str):
+    """將一年中的第 n 天還原為 MMDD 格式 (引用自你的原始邏輯)"""
+    month_days = [0, 31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    try:
+        total_days = int(n_day_str)
+        m = 1
+        while m < len(month_days) and total_days > month_days[m]:
+            total_days -= month_days[m]
+            m += 1
+        return f"{m:02d}{total_days:02d}"
+    except:
+        return "Unknown"
 
-    # 2. Base64 密文轉回位元串
+def rsa_batch_decrypt(n, d, b64_input):
+    """核心 RSA 位元流解密邏輯"""
+    # 1. 自動推算區塊參數
+    k = math.floor(math.log2(n))           
+    c_bits_len = math.ceil(math.log2(n))    
+
+    # 2. Base64 轉位元串
     try:
         byte_data = base64.b64decode(b64_input)
         all_bits = "".join([bin(b)[2:].zfill(8) for b in byte_data])
-    except:
-        return "B64_ERROR"
-
-    # 3. 逐塊讀取密文並解密：M = C^d mod n
-    original_bits = ""
-    # 使用迴圈遍歷所有密文區塊
-    for i in range(0, (len(all_bits) // c_bits_len) * c_bits_len, c_bits_len):
-        chunk = all_bits[i:i+c_bits_len]
-        if len(chunk) < c_bits_len: break
         
-        c = int(chunk, 2)
-        m = pow(c, d, n) # 大數模冪運算
-        original_bits += bin(m)[2:].zfill(k)
+        # 3. 逐塊解密：M = C^d mod n
+        m_bits_stream = ""
+        for i in range(0, (len(all_bits) // c_bits_len) * c_bits_len, c_bits_len):
+            chunk = all_bits[i:i+c_bits_len]
+            c = int(chunk, 2)
+            m = pow(c, d, n)
+            m_bits_stream += bin(m)[2:].zfill(k)
+        
+        # 4. 位元流轉 ASCII (7-bit)
+        decoded_text = ""
+        for i in range(0, (len(m_bits_stream) // 7) * 7, 7):
+            char_code = int(m_bits_stream[i:i+7], 2)
+            if char_code == 0: continue 
+            decoded_text += chr(char_code)
+        
+        return decoded_text
+    except Exception as e:
+        return None
 
-    # 4. 位元流轉回 ASCII 字元 (7-bit 系統)
-    decoded_text = ""
-    for i in range(0, (len(original_bits) // 7) * 7, 7):
-        char_bits = original_bits[i:i+7]
-        char_code = int(char_bits, 2)
-        if char_code == 0: continue # 忽略補位的 0
-        decoded_text += chr(char_code)
-    
-    return decoded_text
+# --- Streamlit 介面 ---
+st.set_page_config(page_title="RSA 班級資料解密系統", layout="wide")
 
-# --- Streamlit 介面設計 ---
-st.set_page_config(page_title="RSA 班級資料還原系統", layout="wide")
+st.title("🔐 RSA 班級個資自動還原系統")
+st.markdown("本系統採用 **RSA 位元流加密技術**，支援大數金鑰與生日天數自動換算。")
 
-st.title("🔐 RSA 批次解密與表格自動還原")
-st.markdown("請輸入正確的 **e, n, d** 與 **Base64 密文**。系統將自動計算區塊大小並還原全班名單。")
-
-# 側邊欄：輸入大數金鑰
+# 側邊欄設定
 with st.sidebar:
-    st.header("🔑 RSA 金鑰配置")
-    # 使用 text_input 支援超長數字輸入
-    e_str = st.text_input("請輸入公開金鑰 e (大數)", placeholder="請貼上 e...")
-    n_str = st.text_input("請輸入公開金鑰 n (大數)", placeholder="請貼上 n...")
-    d_str = st.text_input("請輸入秘密金鑰 d (私鑰)", placeholder="請貼上 d...", type="password")
-    st.divider()
-    st.info("💡 Python 支援無限長度整數，直接貼上長數字即可。")
+    st.header("🔑 金鑰參數設定")
+    e_str = st.text_input("公開金鑰 e (大數)", placeholder="貼上 e...")
+    n_str = st.text_input("公開金鑰 n (大數)", placeholder="貼上 n...")
+    d_str = st.text_input("秘密金鑰 d (大數)", type="password", placeholder="貼上 d...")
+    st.info("💡 解密僅需 n 與 d，但保留 e 欄位以符合對稱性。")
 
-# 主畫面：輸入密文
-b64_cipher = st.text_area("📋 請貼上 Base64 加密字串", height=200, placeholder="例如: sYp4A2...")
+# 主畫面輸入
+b64_cipher = st.text_area("📋 請貼上 Base64 密文串", height=150)
 
-if st.button("🚀 執行全班解密並產生表格"):
-    # 檢查是否有空格或換行
-    e_str = e_str.strip()
-    n_str = n_str.strip()
-    d_str = d_str.strip()
-    
-    if e_str and n_str and d_str and b64_cipher:
+if st.button("🚀 開始執行全班解密"):
+    if n_str and d_str and b64_cipher:
         try:
-            # 轉換為整數 (大數運算)
-            e_val = int(e_str)
-            n_val = int(n_str)
-            d_val = int(d_str)
+            # 轉換大整數
+            n_val = int(n_str.strip())
+            d_val = int(d_str.strip())
             
-            with st.spinner("🔒 正在還原位元流並重新排版中..."):
-                raw_decoded = rsa_batch_decrypt(e_val, n_val, d_val, b64_cipher)
+            with st.spinner("🔒 正在解碼位元流並還原資料結構..."):
+                full_text = rsa_batch_decrypt(n_val, d_val, b64_cipher)
             
-            if raw_decoded == "B64_ERROR":
-                st.error("❌ Base64 格式錯誤，請檢查密文是否複製完整。")
-            elif raw_decoded:
-                # 5. 自動排版：每 24 碼切分為一位同學
-                # (10碼電話 + 10碼身分證 + 4碼生日)
-                student_list = []
-                for i in range(0, (len(raw_decoded) // 24) * 24, 24):
-                    chunk = raw_decoded[i:i+24]
-                    student_list.append({
-                        "座號": (i // 24) + 1,
-                        "手機號碼": chunk[0:10],
-                        "身分證字號": chunk[10:20],
-                        "出生月日": chunk[20:24]
+            if full_text:
+                # 5. 資料表格化 (依照每人 23 碼邏輯：10電話 + 10身分證 + 3天數)
+                student_data = []
+                for i in range(0, (len(full_text) // 23) * 23, 23):
+                    chunk = full_text[i:i+23]
+                    phone = chunk[0:10]
+                    id_card = chunk[10:20]
+                    day_n = chunk[20:23]
+                    
+                    student_data.append({
+                        "座號": (i // 23) + 1,
+                        "手機號碼": phone,
+                        "身分證字號": id_card,
+                        "生日 (MMDD)": days_to_date(day_n)
                     })
                 
-                if student_list:
-                    st.success(f"✅ 解密完成！成功還原 {len(student_list)} 位同學資料。")
-                    df = pd.DataFrame(student_list)
-                    # 使用 st.table 確保數字格式不會跑掉 (例如 09 變成 9)
-                    st.table(df)
+                if student_data:
+                    st.success(f"✅ 成功！已識別出 {len(student_data)} 位同學資料。")
+                    df = pd.DataFrame(student_data)
+                    st.table(df) # 使用 table 避免數字格式跑掉
                 else:
-                    st.warning("⚠️ 解碼後的長度不足 24 碼，無法構成一位學生的資料。")
-                    st.text("原始解碼內容預覽：")
-                    st.code(raw_decoded)
+                    st.warning("⚠️ 解碼後的長度不足 23 碼。")
+                    st.code(full_text)
             else:
-                st.error("❌ 解密失敗。請確認金鑰與密文是否成對。")
+                st.error("❌ 解密失敗，請檢查金鑰與密文。")
                 
         except ValueError:
-            st.error("❌ 錯誤：金鑰欄位只能輸入純數字，不可有英文字母或特殊符號。")
-        except Exception as err:
-            st.error(f"❌ 發生非預期錯誤：{err}")
+            st.error("❌ 金鑰欄位必須是純數字。")
     else:
-        st.warning("⚠️ 請完整填寫 e, n, d 以及密文欄位。")
+        st.warning("⚠️ 請完整填寫金鑰與密文。")
 
 st.divider()
-st.caption("技術支援：本系統採用 7-bit ASCII 位元流分段處理技術。")
+st.caption("技術原理：$M = C^d \pmod{n}$ 位元流還原 | 7-bit ASCII 編碼")
